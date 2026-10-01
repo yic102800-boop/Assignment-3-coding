@@ -1,0 +1,336 @@
+// Key features:
+// 1. Arrange the position and size of patterns.
+// 2. Experiment with dynamic musical expression—shaking.
+// 3. Use mouse control as a temporary substitute for camera capture.
+
+const imagePaths = [
+  "assets/01.png",
+  "assets/02.png",
+  "assets/03.png",
+  "assets/04.png",
+  "assets/05.png",
+  "assets/06.png",
+  "assets/07.png",
+  "assets/08.png",
+  "assets/09.png",
+  "assets/10.png",
+  "assets/11.png",
+  "assets/12.png"
+];
+
+const labels = ["STRINGS", "WOODWINDS", "BRASS"];
+
+// Overall magnification scale for all characters
+const globalSize = 2;
+
+// x, y: Proportional position of the bottom center of the image.
+// size: Image height before scaling up
+// flip: horizontal mirror
+let layout = [
+  { "x": 0.1269, "y": 0.7029, "size": 200, "flip": false },
+  { "x": 0.0565, "y": 0.7837, "size": 220, "flip": false },
+  { "x": 0.1742, "y": 0.7378, "size": 180, "flip": false },
+  { "x": 0.2722, "y": 0.7047, "size": 210,  "flip": true },
+  { "x": 0.5307, "y": 0.635,  "size": 170, "flip": false },
+  { "x": 0.6097, "y": 0.6864, "size": 210, "flip": false },
+  { "x": 0.3831, "y": 0.6827, "size": 200, "flip": false },
+  { "x": 0.4584, "y": 0.6239, "size": 160, "flip": false },
+  { "x": 0.866, "y": 0.7213, "size": 220,   "flip": true },
+  { "x": 0.7936, "y": 0.6901, "size": 210,  "flip": true },
+  { "x": 0.69,  "y": 0.674, "size": 210,    "flip": true },
+  { "x": 0.9072, "y": 0.7539, "size": 240,  "flip": true }
+]; 
+
+let players = [];
+let loadedCount = 0;
+let failedFiles = [];
+
+let editMode = true;
+let selected = -1;
+let dragging = false;
+let offsetX = 0;
+let offsetY = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  imageMode(CORNER);
+
+  for (let i = 0; i < imagePaths.length; i++) {
+    const player = {
+      img: null,
+      group: floor(i / 4),
+      phase: i * 0.6,
+      energy: 0
+    };
+
+    players.push(player);
+
+    loadImage(
+      imagePaths[i],
+      (img) => {
+        player.img = img;
+        loadedCount++;
+      },
+      () => {
+        failedFiles.push(imagePaths[i]);
+      }
+    );
+  }
+}
+
+function draw() {
+  background(255);
+
+  if (loadedCount < 12) {
+    noStroke();
+    fill(0);
+    textAlign(LEFT, TOP);
+    textSize(16);
+    text(`Loaded: ${loadedCount} / 12`, 20, 20);
+
+    if (failedFiles.length) {
+      text(
+        "Failed: " + failedFiles.join(", "),
+        20, 55, max(100, width - 40), 200
+      );
+    }
+
+    return;
+  }
+
+  const zoneWidth = width / 3;
+
+  const inside =
+    mouseX >= 0 && mouseX < width &&
+    mouseY >= 55 && mouseY < height - 36;
+
+  const activeGroup = !editMode && inside
+    ? floor(mouseX / zoneWidth)
+    : -1;
+
+  //Regional Background
+  for (let g = 0; g < 3; g++) {
+    noStroke();
+    fill(g === activeGroup ? 230 : 250);
+    rect(g * zoneWidth, 0, zoneWidth, height);
+  }
+
+  stroke(210);
+  strokeWeight(1);
+  line(zoneWidth, 55, zoneWidth, height - 36);
+  line(zoneWidth * 2, 55, zoneWidth * 2, height - 36);
+
+  // Character Animation
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    const box = getPlayerBox(i);
+
+    const target = p.group === activeGroup ? 1 : 0;
+    p.energy = lerp(p.energy, target, 0.08);
+
+    const wave = sin(millis() / 200 + p.phase);
+    const sway = editMode ? 0 : wave * 0.025 * p.energy;
+    const pulse = editMode
+      ? 1
+      : 1 + (wave + 1) * 0.02 * p.energy;
+
+    push();
+    translate(box.x, box.y);
+    rotate(sway);
+    scale(pulse);
+
+    // Mirror only the character
+    push();
+    scale(layout[i].flip ? -1 : 1, 1);
+    image(p.img, -box.w / 2, -box.h, box.w, box.h);
+    pop();
+
+    if (editMode) {
+      if (selected === i) {
+        noFill();
+        stroke(0);
+        strokeWeight(1.5);
+        rect(-box.w / 2, -box.h, box.w, box.h);
+      }
+
+      noStroke();
+      fill(0);
+      textAlign(CENTER, TOP);
+      textSize(12);
+      text(String(i + 1).padStart(2, "0"), 0, 5);
+    }
+
+    pop();
+  }
+
+  drawInterface(zoneWidth);
+}
+
+function drawInterface(zoneWidth) {
+  noStroke();
+  fill(255);
+  rect(0, 0, width, 55);
+  rect(0, height - 36, width, 36);
+
+  fill(0);
+  textAlign(CENTER, CENTER);
+  textSize(16);
+
+  for (let g = 0; g < 3; g++) {
+    text(labels[g], (g + 0.5) * zoneWidth, 28);
+  }
+
+  textSize(12);
+
+  const selectedLabel = selected >= 0
+    ? ` | Selected: ${String(selected + 1).padStart(2, "0")}`
+    : "";
+
+  text(
+    editMode
+      ? "EDIT: Drag | Up/Down: size | Left/Right: select | M: mirror | P: layout | E: play"
+        + selectedLabel
+      : "PLAY: Move mouse between sections | E: edit",
+    width / 2,
+    height - 18
+  );
+}
+
+function getPlayerBox(i) {
+  const img = players[i].img;
+  const item = layout[i];
+
+  //Based on a design reference of 1200 × 600.
+  const screenScale = min(width / 1200, height / 600);
+
+  const h = item.size * screenScale * globalSize;
+  const w = h * img.width / img.height;
+
+  return {
+    x: item.x * width,
+    y: item.y * height,
+    w,
+    h
+  };
+}
+
+function mousePressed() {
+  if (!editMode || loadedCount < 12) return;
+  if (mouseY < 55 || mouseY > height - 36) return;
+
+  selected = -1;
+  dragging = false;
+
+  // 优先选中最上层图片
+  for (let i = players.length - 1; i >= 0; i--) {
+    const box = getPlayerBox(i);
+
+    const hit =
+      mouseX >= box.x - box.w / 2 &&
+      mouseX <= box.x + box.w / 2 &&
+      mouseY >= box.y - box.h &&
+      mouseY <= box.y;
+
+    if (hit) {
+      selected = i;
+      dragging = true;
+      offsetX = mouseX - box.x;
+      offsetY = mouseY - box.y;
+      break;
+    }
+  }
+}
+
+function mouseDragged() {
+  if (!editMode || !dragging || selected < 0) return;
+
+  moveSelected(mouseX - offsetX, mouseY - offsetY);
+  return false;
+}
+
+function moveSelected(x, y) {
+  layout[selected].x = constrain(x / width, 0, 1);
+  layout[selected].y = constrain(y / height, 0, 1);
+}
+
+function mouseReleased() {
+  dragging = false;
+}
+
+function keyPressed() {
+  if (key === "e" || key === "E") {
+    editMode = !editMode;
+    dragging = false;
+    return false;
+  }
+
+  if (!editMode || loadedCount < 12) return;
+
+  // Commands for object selection and zooming operations
+  if (keyCode === RIGHT_ARROW || keyCode === LEFT_ARROW) {
+    const direction = keyCode === RIGHT_ARROW ? 1 : -1;
+
+    selected = selected < 0
+      ? 0
+      : (selected + direction + 12) % 12;
+
+    dragging = false;
+    return false;
+  }
+
+  if (selected >= 0) {
+   if (keyCode === UP_ARROW || key === "+" || key === "=") {
+      layout[selected].size = min(
+        layout[selected].size + 10, 500
+      );
+      return false;
+    }
+
+  if (keyCode === DOWN_ARROW || key === "-") {
+      layout[selected].size = max(
+        layout[selected].size - 10, 20
+      );
+      return false;
+    }
+
+    if (key === "m" || key === "M") {
+      layout[selected].flip = !layout[selected].flip;
+      return false;
+    }
+  }
+
+  if (key === "p" || key === "P") {
+    printLayout();
+    return false;
+  }
+}
+
+function mouseMoved() {
+  if (
+    editMode &&
+    selected >= 0 &&
+    loadedCount === 12 &&
+    keyIsDown(SHIFT)
+  ) {
+    moveSelected(mouseX, mouseY);
+  }
+}
+
+function printLayout() {
+  const savedLayout = layout.map((item) => ({
+    x: Number(item.x.toFixed(4)),
+    y: Number(item.y.toFixed(4)),
+    size: item.size,
+    flip: Boolean(item.flip)
+  }));
+
+  console.log(
+    "let layout = " +
+    JSON.stringify(savedLayout, null, 2) +
+    ";"
+  );
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
