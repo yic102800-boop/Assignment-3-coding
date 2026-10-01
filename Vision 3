@@ -1,0 +1,548 @@
+// ==================== 图片 ====================
+
+const imagePaths = [
+  "assets/01.png",
+  "assets/02.png",
+  "assets/03.png",
+  "assets/04.png",
+  "assets/05.png",
+  "assets/06.png",
+  "assets/07.png",
+  "assets/08.png",
+  "assets/09.png",
+  "assets/10.png",
+  "assets/11.png",
+  "assets/12.png"
+];
+
+const labels = ["STRINGS", "WOODWINDS", "BRASS"];
+const soundNames = ["strings", "woodwinds", "brass"];
+
+// 保留你目前的整体大小
+const globalSize = 2;
+
+// 保留你调整好的位置、大小和镜像
+let layout = [
+  { x: 0.1269, y: 0.7029, size: 200, flip: false },
+  { x: 0.0565, y: 0.7837, size: 220, flip: false },
+  { x: 0.1742, y: 0.7378, size: 180, flip: false },
+  { x: 0.2722, y: 0.7047, size: 210, flip: true },
+  { x: 0.5307, y: 0.635, size: 170, flip: false },
+  { x: 0.6097, y: 0.6864, size: 210, flip: false },
+  { x: 0.3831, y: 0.6827, size: 200, flip: false },
+  { x: 0.4584, y: 0.6239, size: 160, flip: false },
+  { x: 0.866, y: 0.7213, size: 220, flip: true },
+  { x: 0.7936, y: 0.6901, size: 210, flip: true },
+  { x: 0.69, y: 0.674, size: 210, flip: true },
+  { x: 0.9072, y: 0.7539, size: 240, flip: true }
+];
+
+let players = [];
+let loadedCount = 0;
+let failedFiles = [];
+
+let editMode = true;
+let selected = -1;
+let dragging = false;
+let offsetX = 0;
+let offsetY = 0;
+
+const topBarHeight = 55;
+const bottomBarHeight = 36;
+
+// ==================== 声音与音调 ====================
+
+const orchestraSounds = new Tone.Players({
+  strings: "assets/strings.wav",
+  woodwinds: "assets/woodwinds.wav",
+  brass: "assets/brass.wav"
+}).toDestination();
+
+// 最近触发的区域
+let lastSoundGroup = -1;
+
+// 相对于原音高的半音变化
+let currentSemitones = 0;
+
+// 音高调整范围：上下各6个半音
+const pitchRange = 6;
+
+let soundMessage = "";
+
+// ==================== 初始化 ====================
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  imageMode(CORNER);
+
+  for (let i = 0; i < imagePaths.length; i++) {
+    const player = {
+      img: null,
+      group: floor(i / 4),
+      phase: i * 0.6,
+      energy: 0
+    };
+
+    players.push(player);
+
+    loadImage(
+      imagePaths[i],
+      (img) => {
+        player.img = img;
+        loadedCount++;
+      },
+      () => {
+        failedFiles.push(imagePaths[i]);
+      }
+    );
+  }
+}
+
+// ==================== 画面 ====================
+
+function draw() {
+  background(255);
+
+  if (loadedCount < imagePaths.length) {
+    noStroke();
+    fill(0);
+    textAlign(LEFT, TOP);
+    textSize(16);
+
+    text(
+      `Loaded: ${loadedCount} / ${imagePaths.length}`,
+      20,
+      20
+    );
+
+    if (failedFiles.length) {
+      text(
+        "Failed: " + failedFiles.join(", "),
+        20,
+        55,
+        max(100, width - 40),
+        200
+      );
+    }
+
+    return;
+  }
+
+  // 演奏模式下持续更新音调
+  updateMousePitch();
+
+  const zoneWidth = width / 3;
+
+  const activeGroup = !editMode && isInsidePlayArea()
+    ? floor(mouseX / zoneWidth)
+    : -1;
+
+  // 区域背景
+  for (let g = 0; g < 3; g++) {
+    noStroke();
+    fill(g === activeGroup ? 230 : 250);
+    rect(g * zoneWidth, 0, zoneWidth, height);
+  }
+
+  stroke(210);
+  strokeWeight(1);
+
+  line(
+    zoneWidth,
+    topBarHeight,
+    zoneWidth,
+    height - bottomBarHeight
+  );
+
+  line(
+    zoneWidth * 2,
+    topBarHeight,
+    zoneWidth * 2,
+    height - bottomBarHeight
+  );
+
+  // 人物动画
+  for (let i = 0; i < players.length; i++) {
+    const p = players[i];
+    const box = getPlayerBox(i);
+
+    const target = p.group === activeGroup ? 1 : 0;
+    p.energy = lerp(p.energy, target, 0.08);
+
+    const wave = sin(millis() / 200 + p.phase);
+    const sway = editMode ? 0 : wave * 0.025 * p.energy;
+    const pulse = editMode
+      ? 1
+      : 1 + (wave + 1) * 0.02 * p.energy;
+
+    push();
+    translate(box.x, box.y);
+    rotate(sway);
+    scale(pulse);
+
+    push();
+    scale(layout[i].flip ? -1 : 1, 1);
+    image(p.img, -box.w / 2, -box.h, box.w, box.h);
+    pop();
+
+    if (editMode) {
+      if (selected === i) {
+        noFill();
+        stroke(0);
+        strokeWeight(1.5);
+        rect(-box.w / 2, -box.h, box.w, box.h);
+      }
+
+      noStroke();
+      fill(0);
+      textAlign(CENTER, TOP);
+      textSize(12);
+      text(String(i + 1).padStart(2, "0"), 0, 5);
+    }
+
+    pop();
+  }
+
+  drawInterface(zoneWidth);
+}
+
+function drawInterface(zoneWidth) {
+  noStroke();
+  fill(255);
+  rect(0, 0, width, topBarHeight);
+  rect(
+    0,
+    height - bottomBarHeight,
+    width,
+    bottomBarHeight
+  );
+
+  fill(0);
+  textAlign(CENTER, CENTER);
+  textSize(16);
+
+  for (let g = 0; g < 3; g++) {
+    text(labels[g], (g + 0.5) * zoneWidth, 20);
+  }
+
+  // 显示当前控制的区域及音高偏移
+  if (!editMode && lastSoundGroup >= 0) {
+    const sign = currentSemitones > 0 ? "+" : "";
+
+    textSize(11);
+    text(
+      `Pitch: ${sign}${currentSemitones} semitones`,
+      (lastSoundGroup + 0.5) * zoneWidth,
+      42
+    );
+  }
+
+  textSize(12);
+
+  const selectedLabel = selected >= 0
+    ? ` | Selected: ${String(selected + 1).padStart(2, "0")}`
+    : "";
+
+  let instruction;
+
+  if (editMode) {
+    instruction =
+      "EDIT: Drag | Up/Down: size | Left/Right: select"
+      + " | M: mirror | P: layout | E: play"
+      + selectedLabel;
+  } else {
+    instruction =
+      "PLAY: Click section / 1 2 3: sound"
+      + " | Move up/down: pitch | E: edit";
+  }
+
+  if (soundMessage) {
+    instruction = soundMessage;
+  }
+
+  text(instruction, width / 2, height - 18);
+}
+
+function getPlayerBox(i) {
+  const img = players[i].img;
+  const item = layout[i];
+
+  const screenScale = min(width / 1200, height / 600);
+
+  const h = item.size * screenScale * globalSize;
+  const w = h * img.width / img.height;
+
+  return {
+    x: item.x * width,
+    y: item.y * height,
+    w,
+    h
+  };
+}
+
+function isInsidePlayArea() {
+  return (
+    mouseX >= 0 &&
+    mouseX < width &&
+    mouseY >= topBarHeight &&
+    mouseY < height - bottomBarHeight
+  );
+}
+
+// 鼠标高度转换为0～1
+function getMouseHeight() {
+  const playHeight = max(
+    1,
+    height - topBarHeight - bottomBarHeight
+  );
+
+  return constrain(
+    (mouseY - topBarHeight) / playHeight,
+    0,
+    1
+  );
+}
+
+// ==================== 鼠标操作 ====================
+
+function mousePressed() {
+  if (!editMode) {
+    if (isInsidePlayArea()) {
+      const group = floor(mouseX / (width / 3));
+
+      playGroupSound(group, getMouseHeight());
+    }
+
+    return false;
+  }
+
+  if (loadedCount < imagePaths.length) return;
+  if (!isInsidePlayArea()) return;
+
+  selected = -1;
+  dragging = false;
+
+  // 优先选中最上层图片
+  for (let i = players.length - 1; i >= 0; i--) {
+    const box = getPlayerBox(i);
+
+    const hit =
+      mouseX >= box.x - box.w / 2 &&
+      mouseX <= box.x + box.w / 2 &&
+      mouseY >= box.y - box.h &&
+      mouseY <= box.y;
+
+    if (hit) {
+      selected = i;
+      dragging = true;
+      offsetX = mouseX - box.x;
+      offsetY = mouseY - box.y;
+      break;
+    }
+  }
+}
+
+function mouseDragged() {
+  if (!editMode || !dragging || selected < 0) return;
+
+  moveSelected(mouseX - offsetX, mouseY - offsetY);
+  return false;
+}
+
+function mouseReleased() {
+  dragging = false;
+}
+
+function mouseMoved() {
+  if (
+    editMode &&
+    selected >= 0 &&
+    loadedCount === imagePaths.length &&
+    keyIsDown(SHIFT)
+  ) {
+    moveSelected(mouseX, mouseY);
+  }
+}
+
+function moveSelected(x, y) {
+  layout[selected].x = constrain(x / width, 0, 1);
+  layout[selected].y = constrain(y / height, 0, 1);
+}
+
+// ==================== 键盘操作 ====================
+
+function keyPressed() {
+  // 数字键测试声音
+  if (key === "1" || key === "2" || key === "3") {
+    const group = Number(key) - 1;
+
+    // 编辑模式下测试原音高
+    // 演奏模式下使用鼠标高度
+    const normalizedY = editMode ? 0.5 : getMouseHeight();
+
+    playGroupSound(group, normalizedY);
+    return false;
+  }
+
+  // 切换编辑 / 演奏模式
+  if (key === "e" || key === "E") {
+    editMode = !editMode;
+    dragging = false;
+    soundMessage = "";
+
+    // 返回编辑模式时停止声音
+    if (editMode) {
+      orchestraSounds.stopAll();
+      lastSoundGroup = -1;
+      currentSemitones = 0;
+    }
+
+    return false;
+  }
+
+  if (!editMode || loadedCount < imagePaths.length) return;
+
+  // 左右箭头选择人物
+  if (keyCode === RIGHT_ARROW || keyCode === LEFT_ARROW) {
+    const direction = keyCode === RIGHT_ARROW ? 1 : -1;
+
+    selected = selected < 0
+      ? 0
+      : (
+        selected + direction + imagePaths.length
+      ) % imagePaths.length;
+
+    dragging = false;
+    return false;
+  }
+
+  if (selected >= 0) {
+    // 放大
+    if (keyCode === UP_ARROW || key === "+" || key === "=") {
+      layout[selected].size = min(
+        layout[selected].size + 10,
+        500
+      );
+
+      return false;
+    }
+
+    // 缩小
+    if (keyCode === DOWN_ARROW || key === "-") {
+      layout[selected].size = max(
+        layout[selected].size - 10,
+        20
+      );
+
+      return false;
+    }
+
+    // 镜像
+    if (key === "m" || key === "M") {
+      layout[selected].flip = !layout[selected].flip;
+      return false;
+    }
+  }
+
+  // 输出布局
+  if (key === "p" || key === "P") {
+    printLayout();
+    return false;
+  }
+}
+
+// ==================== 播放声音 ====================
+
+async function playGroupSound(group, normalizedY = 0.5) {
+  if (group < 0 || group >= soundNames.length) return;
+
+  try {
+    // 通过点击或按键开启浏览器音频
+    await Tone.start();
+
+    if (!orchestraSounds.loaded) {
+      soundMessage = "Sounds loading — please try again.";
+      return;
+    }
+
+    soundMessage = "";
+    lastSoundGroup = group;
+
+    // 播放前先设置音调
+    updateHandPitch(group, normalizedY);
+
+    const player = orchestraSounds.player(soundNames[group]);
+
+    // 再次触发时从头播放
+    player.stop();
+    player.start();
+  } catch (error) {
+    soundMessage = "Audio error — check the console.";
+    console.error("声音播放失败：", error);
+  }
+}
+
+// 输入高度：0 = 最上方，1 = 最下方
+// 以后接摄像头时，也可以调用这个函数
+function updateHandPitch(group, normalizedY) {
+  if (
+    !orchestraSounds.loaded ||
+    group < 0 ||
+    group >= soundNames.length
+  ) {
+    return;
+  }
+
+  const y = Math.max(0, Math.min(1, normalizedY));
+
+  // 上方 +6半音，中间 0，下方 -6半音
+  const semitones = Math.round(
+    pitchRange - y * pitchRange * 2
+  );
+
+  const player = orchestraSounds.player(soundNames[group]);
+  const rate = Math.pow(2, semitones / 12);
+
+  // 只有音高发生变化时才更新
+  if (Math.abs(player.playbackRate - rate) > 0.0001) {
+    player.playbackRate = rate;
+  }
+
+  if (group === lastSoundGroup) {
+    currentSemitones = semitones;
+  }
+}
+
+// 播放过程中，用鼠标模拟手的高度
+function updateMousePitch() {
+  if (
+    editMode ||
+    lastSoundGroup === -1 ||
+    !isInsidePlayArea()
+  ) {
+    return;
+  }
+
+  updateHandPitch(lastSoundGroup, getMouseHeight());
+}
+
+// ==================== 保存布局与画布尺寸 ====================
+
+function printLayout() {
+  const savedLayout = layout.map((item) => ({
+    x: Number(item.x.toFixed(4)),
+    y: Number(item.y.toFixed(4)),
+    size: item.size,
+    flip: Boolean(item.flip)
+  }));
+
+  console.log(
+    "let layout = " +
+    JSON.stringify(savedLayout, null, 2) +
+    ";"
+  );
+}
+
+function windowResized() {
+  resizeCanvas(windowWidth, windowHeight);
+}
