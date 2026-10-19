@@ -1,0 +1,5 @@
+//V02 — Mouse-Controlled Audio and Pitch
+//This prototype adds three instrument audio files using Tone.Players. Clicking a section or pressing 1, 2 or 3 triggers its sound.
+//Vertical mouse movement adjusts the playback rate of the most recently triggered instrument, shifting pitch by up to six semitones above or below the original recording.
+//Musician animation and layout editing are retained.Camera-based hand tracking and C-major pitch selection were introduced in later versions.
+
